@@ -1,75 +1,69 @@
-import { create } from "zustand";
-import { toast } from "react-hot-toast";
-import { axiosInstance } from "../lib/axios";
+import { create } from 'zustand';
+import { axiosInstance } from '../lib/axios';
+import toast from 'react-hot-toast';
 
-export const useChatStore = create((set) => ({
-  messages: [],
-  users: [],
+export const useChatStore = create((set, get) => ({
   selectedUser: null,
-  isMessagesLoading: false,
+  users: [],
+  messages: [],
   isUserLoading: false,
+  isMessagesLoading: false,
+  error: null,
+
+  setSelectedUser: (user) => set({ selectedUser: user }),
 
   getUser: async () => {
-    set({ isUserLoading: true });
+    set({ isUserLoading: true, error: null });
     try {
-      const res = await axiosInstance.get('/message/users');
-      set({ users: res.data.filteredUser || [] });
+      const response = await axiosInstance.get('/message/users');
+      set({ users: response.data.filteredUser, isUserLoading: false });
     } catch (error) {
-      console.error("Get users error:", error);
-      toast.error(error.response?.data?.message || "Error fetching users");
-    } finally {
-      set({ isUserLoading: false });
+      set({
+        error: error.response?.data?.error || 'Failed to fetch users',
+        isUserLoading: false,
+      });
+      toast.error(error.response?.data?.error || 'Failed to fetch users');
     }
   },
 
-  getMessages: async (userId) => {
-    set({ isMessagesLoading: true });
+  getMessages: async (receiverId) => {
+    if (!receiverId) return;
+    
+    set({ isMessagesLoading: true, error: null });
     try {
-      const res = await axiosInstance.get(`/message/${userId}`);
-      const messages = Array.isArray(res.data) ? res.data : [];
-      
-      const normalizedMessages = messages.map(msg => ({
-        ...msg,
-        _id: msg._id || Math.random().toString(36).substr(2, 9),
-        text: msg.text || msg.message || '',
-        createdAt: msg.createdAt || new Date().toISOString()
-      }));
-
-      set({ messages: normalizedMessages });
+      const response = await axiosInstance.get(`/message/${receiverId}`);
+      set({ messages: response.data, isMessagesLoading: false });
     } catch (error) {
-      console.error('Message fetch error:', error.message);
-      toast.error(error.response?.data?.message || "Failed to load messages");
-      set({ messages: [] });
-    } finally {
-      set({ isMessagesLoading: false });
+      set({
+        error: error.response?.data?.error || 'Failed to fetch messages',
+        isMessagesLoading: false,
+      });
+      toast.error(error.response?.data?.error || 'Failed to fetch messages');
     }
   },
 
-  sendMessage: async (data) => {
-    const { selectedUser, messages } = useChatStore.getState();
+  sendMessage: async (messageData) => {
+    const { selectedUser } = get();
     if (!selectedUser) {
-      toast.error("Please select a user to chat with.");
-      return;
-    }
-
-    if (!data.text && !data.image) {
-      toast.error("Message cannot be empty");
+      toast.error('No user selected');
       return;
     }
 
     try {
-      const res = await axiosInstance.post(`/message/send/${selectedUser._id}`, data);
-      const newMessage = {
-        ...res.data,
-        text: res.data.text || res.data.message || '',
-        _id: res.data._id || Math.random().toString(36).substr(2, 9)
-      };
-      set({ messages: [...messages, newMessage] });
+      const response = await axiosInstance.post(
+        `/message/send/${selectedUser._id}`,
+        messageData
+      );
+      
+      // Update messages with the new one
+      set((state) => ({
+        messages: [...state.messages, response.data],
+      }));
+      
+      return response.data;
     } catch (error) {
-      console.error('Send message error:', error);
-      toast.error(error?.response?.data?.message || "Failed to send message");
+      toast.error(error.response?.data?.error || 'Failed to send message');
+      throw error;
     }
   },
-
-  setSelectedUser: (selectedUser) => set({ selectedUser }),
 }));

@@ -2,7 +2,7 @@ import { useChatStore } from "../Store/useChatStore";
 import { useEffect, useRef } from "react";
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
-import MessageSkeleton from "./skeletons/MessageSkeleton";
+import MessageSkeleton from "./Skeletons/MessageSkeleton";
 import { useAuthStore } from "../Store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
 
@@ -50,6 +50,7 @@ const ChatContainer = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages?.length > 0 ? (
           messages.map((message, index) => {
+            // Check both text and message fields to handle any data inconsistency
             const messageContent = message.text || message.message || '';
             const isCurrentUser = message.senderId === authUser?._id;
             

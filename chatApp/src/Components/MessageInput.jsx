@@ -34,7 +34,7 @@ const MessageInput = () => {
 
     try {
       await sendMessage({
-        message: text.trim(),  
+        message: text.trim(), // Keep this as 'message' to match backend expectation
         image: imagePreview,
       });
 

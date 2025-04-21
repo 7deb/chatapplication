@@ -8,29 +8,15 @@ const sendMessage = async (req, res) => {
     const { message, image } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
-
+    
+    // Check if at least one of message or image is provided
     if (!message && !image) {
-      return res.status(400).json({ message: "Message text or image is required." });
+      return res.status(400).json({ error: "Message or image is required" });
     }
 
     let conversation = await Conversation.findOne({
       participants: { $all: [senderId, receiverId] },
     });
-
-    let imageUrl;
-    if (image) {
-      try {
-        const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
-        const dataUri = `data:image/jpeg;base64,${base64Data}`;
-        const uploadResponse = await cloudinary.uploader.upload(dataUri, {
-          folder: "chat_images",
-        });
-        imageUrl = uploadResponse.secure_url;
-      } catch (uploadErr) {
-        console.error("Cloudinary upload failed:", uploadErr);
-        return res.status(500).json({ message: "Image upload failed." });
-      }
-    }
 
     if (!conversation) {
       conversation = await Conversation.create({
@@ -38,33 +24,27 @@ const sendMessage = async (req, res) => {
       });
     }
 
+    // Create new message with text field (renamed from message)
     const newMessage = new Message({
       senderId,
       receiverId,
-      message,
-      image: imageUrl || null,
+      text: message, // Use text field instead of message
+      image: image || "",
     });
 
-    await newMessage.save();
-    conversation.messages.push(newMessage._id);
-    await conversation.save();
-
-    const receiverSocketId = getReceiverSocketId(receiverId);
-    if (receiverSocketId) {
-      // Safely handle the message object
-      const messageForSocket = newMessage.toObject 
-        ? newMessage.toObject() 
-        : { ...newMessage._doc };
-      io.to(receiverSocketId).emit("newMessage", {
-        ...messageForSocket,
-        text: newMessage.message
-      });
+    // Save the message
+    const savedMessage = await newMessage.save();
+    
+    // If message saved successfully, update the conversation
+    if (savedMessage) {
+      conversation.messages.push(savedMessage._id);
     }
 
-    res.status(201).json({
-      ...(newMessage.toObject ? newMessage.toObject() : newMessage._doc),
-      text: newMessage.message
-    });
+    // Save the updated conversation
+    await conversation.save();
+
+    // Send response
+    res.status(201).json(savedMessage);
   } catch (err) {
     console.log("Error in sendMessage Controller:", err.message);
     res.status(500).json({ message: "Internal server error" });
@@ -81,21 +61,7 @@ const getMessage = async (req, res) => {
     }).populate({
       path: "messages",
       options: { sort: { createdAt: 1 } },
-      // Add match to filter out null references
-      match: { _id: { $exists: true } },
-      transform: (doc) => {
-        if (!doc) return null; // Skip null documents
-        
-        // Safely handle the document
-        const docObject = doc.toObject ? doc.toObject() : doc;
-        return {
-          ...docObject,
-          text: doc.message,
-          senderId: doc.senderId,
-          createdAt: doc.createdAt,
-          image: doc.image || null
-        };
-      }
+      match: { _id: { $exists: true } }
     });
 
     if (!conversation) return res.status(200).json([]);

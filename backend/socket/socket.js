@@ -1,38 +1,42 @@
 const { Server } = require("socket.io");
-const http = require("http");
-const express = require("express");
 
-const app = express();
-const server = http.createServer(app);
+let io;
+let userSocketMap = {};
 
-const io = new Server(server, {
+function initSocket(server) {
+  io = new Server(server, {
     cors: {
-        origin: ["http://localhost:3000"],// the port on which the frontend is running
-        methods: ["GET", "POST"],
+      origin: ["http://localhost:5173"],
+      methods: ["GET", "POST"],
+      credentials: true,
     },
-});
+  });
 
-const userSocketMap = {};
+  io.on("connection", (socket) => {
+    const userId = socket.handshake.query.userId;
+
+    if (userId && userId !== "undefined") {
+      userSocketMap[userId] = socket.id;
+      io.emit("getOnlineUsers", Object.keys(userSocketMap));
+    }
+
+    socket.on("disconnect", () => {
+      for (let id in userSocketMap) {
+        if (userSocketMap[id] === socket.id) {
+          delete userSocketMap[id];
+          break;
+        }
+      }
+      io.emit("getOnlineUsers", Object.keys(userSocketMap));
+    });
+  });
+}
 
 const getReceiverSocketId = (receiverId) => {
-	return userSocketMap[receiverId];
+  return userSocketMap[receiverId];
 };
 
-io.on("connection", (socket) => {
-	console.log("a user connected", socket.id);
+// ✅ Add a getter for `io` that always returns the latest reference
+const getIO = () => io;
 
-	const userId = socket.handshake.query.userId;
-	if (userId != "undefined") userSocketMap[userId] = socket.id;
-
-	// io.emit() is used to send events to all the connected clients
-	io.emit("getOnlineUsers", Object.keys(userSocketMap));
-
-	// socket.on() is used to listen to the events. can be used both on client and server side
-	socket.on("disconnect", () => {
-		console.log("user disconnected", socket.id);
-		delete userSocketMap[userId];
-		io.emit("getOnlineUsers", Object.keys(userSocketMap));
-	});
-});
-
-module.exports = { io, server, getReceiverSocketId };
+module.exports = { initSocket, getReceiverSocketId, getIO };

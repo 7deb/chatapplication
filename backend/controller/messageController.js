@@ -1,15 +1,20 @@
 const Conversation = require("../models/conversationModel");
 const Message = require("../models/messageModel");
-const { io, getReceiverSocketId } = require("../socket/socket");
+const { getIO, getReceiverSocketId } = require("../socket/socket");
 const cloudinary = require("../lib/cloudinary");
 
 const sendMessage = async (req, res) => {
   try {
     const { message, image } = req.body;
     const { id: receiverId } = req.params;
-    const senderId = req.user._id;
-    
-    // Check if at least one of message or image is provided
+    const senderId = req.user?._id;
+
+    console.log("Message request received", { senderId, receiverId, message, image });
+
+    if (!senderId || !receiverId) {
+      return res.status(400).json({ error: "Sender or receiver missing" });
+    }
+
     if (!message && !image) {
       return res.status(400).json({ error: "Message or image is required" });
     }
@@ -24,30 +29,35 @@ const sendMessage = async (req, res) => {
       });
     }
 
-    // Create new message with text field (renamed from message)
     const newMessage = new Message({
       senderId,
       receiverId,
-      text: message, // Use text field instead of message
+      text: message,
       image: image || "",
     });
 
-    // Save the message
     const savedMessage = await newMessage.save();
-    
-    // If message saved successfully, update the conversation
+
     if (savedMessage) {
       conversation.messages.push(savedMessage._id);
+      await conversation.save();
     }
 
-    // Save the updated conversation
-    await conversation.save();
+    const receiverSocketID = getReceiverSocketId(receiverId);
+    const io = getIO();
+    if (receiverSocketID) {
+      io.to(receiverSocketID).emit("newMessage", savedMessage);
+    }
+    const senderSocketID = getReceiverSocketId(senderId); // reuse same logic
+    if (senderSocketID && senderSocketID !== receiverSocketID) {
+      io.to(senderSocketID).emit("newMessage", savedMessage);
+    }
 
-    // Send response
+
     res.status(201).json(savedMessage);
   } catch (err) {
-    console.log("Error in sendMessage Controller:", err.message);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("Error in sendMessage Controller:", err.message);
+    res.status(500).json({ error: "Internal server error", details: err.message });
   }
 };
 
